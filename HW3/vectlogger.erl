@@ -20,8 +20,7 @@ loop(Logclock, Holdback_queue, Max, Count)->
 	    Newlogclock = vect:update(From,Time,Logclock),
 	    io:format("~w loop: Current Clock:~w ~n", [Count,Newlogclock]),
 	    %%add the message to the hold-back queue
-	    Newtime = lists:keysort(1,Time),
-	    Added_queue = lists:append([{From,Newtime, Msg}],Holdback_queue),
+	    Added_queue = lists:append([{From,Time, Msg}],Holdback_queue),
 	    %%go through the queue to find messages that are now safe to print
 	    New_queue = checkQueue(Added_queue, Newlogclock),
 	    %%save the maximum length
