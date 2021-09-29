@@ -43,7 +43,9 @@ update(Node, Time, Clock)->
 %%compare the minimum timestamp in logger clock with the message timestamp
 safe(Time,Clock)->
     [{_,Minimum}|_] = lists:keysort(2,Clock),
-    leq(Time,Minimum).
+    %% +1 means every previous message has arrived, it is safe now.
+    Threshold = Minimum +1,
+    leq(Time, Threshold).
 
 
 
