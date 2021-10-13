@@ -267,8 +267,9 @@ addS(Key, Value, Qref, Client, Id, {Pkey,_,_}, {_,_,Spid}, Store)->
 
 %(Key, Value, Qref, Client, Replica)
 addR(Key, Value, Qref, Client, Id, Replica)->
-    storage:add(Key, Value, Replica),
-    Client ! {Qref, Id}.
+    Added = storage:add(Key, Value, Replica),
+    Client ! {Qref, Id},
+    Added.
 
 %Key, Qref, Client, Id, Predecessor, Successor, Store)
 lookup(Key, Qref, Client, Id, {Pkey,_,_}, {_, _,Spid}, Store)->

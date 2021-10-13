@@ -30,13 +30,12 @@ free_test(M, N, P)->
 %N test Machine add N elements into one known node
 add_lookup(Id, N, P)->
     %wait for stabilization of ring
-    timer:sleep(500),
+    T1 = now(),
     io:format("Tets Machine~w:~w add ~w elements~n",[Id,self(),N]),
     %add
     Keys = test:keys(N),
     test:add(Keys, P),
     %look_up
-    T1 = now(),
     test:check(Keys, P, 0 ,0),
     T2 = now(),
     Done = (timer:now_diff(T2, T1) div 1000),

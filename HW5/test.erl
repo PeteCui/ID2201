@@ -28,6 +28,17 @@ add(Key, Value , P) ->
     Q = make_ref(),
     P ! {add, Key, Value, Q, self()},
     receive 
+	{Q, _} ->
+	    ok
+	after ?Timeout ->
+	    {error, "Store timeout"}
+
+    end.
+
+addR(Key, Value , P) ->
+    Q = make_ref(),
+    P ! {add, Key, Value, Q, self()},
+    receive 
 	{Q, Id1} ->
         io:format("Store at ~w~n",[Id1]),
 	    receive 
