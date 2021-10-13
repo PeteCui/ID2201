@@ -1,4 +1,4 @@
--module(node3).
+-module(node4).
 -compile([export_all]).
 
 -define(Stabilize, 100).
@@ -6,67 +6,84 @@
 
 %In the presentation of Chord will keep a list of potential successor, but here pnly keep track of one more successor
 %Qref = {Key, Pid}
-node(Id, Predecessor, Successor, Store, Next) ->
+node(Id, Predecessor, Successor, Store, Next, Replica) ->
     receive
         % a peer needs to know our key
         {key, Qref, Peer} ->
             Peer ! {Qref, Id},
-            node(Id, Predecessor, Successor, Store, Next);
+            node(Id, Predecessor, Successor, Store, Next, Replica);
         % a new node informs us it might be our predecessor
         {notify, New} ->
-            {Pred, KeptStore} = notify(New, Id, Predecessor, Store),
-            node(Id, Pred, Successor, KeptStore, Next);
+            {Pred, {KeptStore, KeptReplic}} = notify(New, Id, Predecessor, Store, Replica),
+            node(Id, Pred, Successor, KeptStore, Next, KeptReplic);
         % a predecessor request our predecessor
         {request, Peer} ->
             request(Peer, Predecessor, Successor),
-            node(Id, Predecessor, Successor, Store, Next);
+            node(Id, Predecessor, Successor, Store, Next, Replica);
         % our successor informs us about its predecessor and next
         %the phase of handling the return status from successor
         {status, Pred, Nx} ->
             {Succ, NewNext} = stabilize(Pred, Nx, Id, Successor),
-            node(Id, Predecessor, Succ, Store, NewNext);
+            node(Id, Predecessor, Succ, Store, NewNext, Replica);
         %receive a stabilize message
         stabilize ->
             % send a request message to successor
             stabilize(Successor),
-            node(Id, Predecessor, Successor, Store, Next);
+            node(Id, Predecessor, Successor, Store, Next, Replica);
 
         % create a probe
         probe->
             create_probe(Id, Successor, Store),
-            node(Id, Predecessor, Successor, Store, Next);
+            node(Id, Predecessor, Successor, Store, Next, Replica);
         %receive the probe
         {probe, Id, Nodes, T} ->
             remove_probe(T, Nodes),
-            node(Id, Predecessor, Successor, Store, Next);
+            node(Id, Predecessor, Successor, Store, Next, Replica);
         %forward the probe
         {probe, Ref, Nodes, T} ->
             forward_probe(Ref, T, Nodes, Id, Successor, Store),
-            node(Id, Predecessor, Successor, Store, Next);
+            node(Id, Predecessor, Successor, Store, Next, Replica);
         
         %request to add a tuplue
         {add, Key, Value, Qref, Client} ->
-            Added = add(Key, Value, Qref, Client, Id, Predecessor, Successor, Store),
-            node(Id, Predecessor, Successor, Added, Next);
+            Added = addS(Key, Value, Qref, Client, Id, Predecessor, Successor, Store),
+            node(Id, Predecessor, Successor, Added, Next, Replica);
+
+        %receive replicate from our predecessor
+        {replicate, Key, Value, Qref, Client}->
+            NewReplica = addR(Key, Value, Qref, Client, Id, Replica),
+            node(Id, Predecessor, Successor, Store, Next, NewReplica);
+
         %request to lookup a tuple
         {lookup, Key, Qref, Client}->
             lookup(Key, Qref, Client, Id, Predecessor, Successor, Store),
-            node(Id, Predecessor, Successor, Store, Next);
+            node(Id, Predecessor, Successor, Store, Next, Replica);
 
         %take over part of the responsibility
-        {handover, Elements} ->
-            Merged = storage:merge(Store, Elements),
-            node(Id, Predecessor, Successor, Merged, Next);
+        {handover, {ElementsS, ElementsR}} ->
+            MergedS = storage:merge(Store, ElementsS),
+            MergedR = storage:merge(Store, ElementsR),
+            node(Id, Predecessor, Successor, MergedS, Next, MergedR);
 
         %handling failures
         {'DOWN', Ref, process,_,_}->
             %return new {Predecessor, Successor, Next}
             {Pred, Succ, Nxt} = down(Ref, Predecessor, Successor, Next),
-            node(Id, Pred, Succ, Store, Nxt);
-
+            NewStore = recoverStore(Store, Replica),
+            node(Id, Pred, Succ, NewStore, Nxt, storage:create());
+        
+        status ->
+            io:format(" Predecessor: ~w~n
+                       Successor: ~w~n
+                       Next: ~w~n
+                       Store: ~w~n
+                       Replica: ~w~n",[Predecessor, Successor, Next, Store, Replica]),
+            node(Id, Predecessor, Successor, Store, Next, Replica);
+            
         % strange messagess
         Error ->
-    	    io:format("node:~w:receive strange message: ~w~n", [Id, Error])
+    	    io:format("node:~w:receive strange message: ~w~n", [Id, Error]),
+            node(Id, Predecessor, Successor, Store, Next, Replica)
     end.
 
 % we are the first node in the ring
@@ -83,7 +100,7 @@ init(Id, Peer) ->
     Next = nil,
     {ok, Successor} = connect(Id, Peer),
     schedule_stabilize(),
-    node(Id, Predecessor, Successor, storage:create(), Next).
+    node(Id, Predecessor, Successor, storage:create(), Next, storage:create()).
 
 %case 1: the successor is ourself
 connect(Id, nil) ->
@@ -127,32 +144,33 @@ request(Peer, Predecessor, Successor)->
 
 % A notify B means A propose that it might be B's proper predecessor.
 % B node be notified should check by itself according to the proposal
-notify({Nkey, Npid}, Id, Predecessor, Store)->
+notify({Nkey, Npid}, Id, Predecessor, Store, Replicate)->
     case Predecessor of
         nil ->
-            Keep = handover(Id, Store, Nkey, Npid),
+            Keep = handover(Id, Store, Replicate, Nkey, Npid),
             Newref = monitor(Npid),
             {{Nkey, Newref, Npid}, Keep};
         {Pkey,Pref, _} ->
             case key:between(Nkey, Pkey, Id) of
                 true ->
                     %predecessor is changed! Approval of proposal
-                    Keep = handover(Id, Store, Nkey, Npid),
+                    Keep = handover(Id, Store, Replicate, Nkey, Npid),
                     drop(Pref),
                     Nref = monitor(Npid),
                     {{Nkey,Nref,Npid}, Keep};
                 false->
                     %Rejection of proposal
-                    {Predecessor, Store}
+                    {Predecessor, {Store,Replicate}}
             end
     end.
 
-handover(Id, Store, Nkey, Npid)->
+handover(Id, Store, Replicate, Nkey, Npid)->
     %k-v in (Nkey, Id] is "keep"
     %k-v in (Pkey, Nkey] is "NotKeep"
-    {Keep, NotKeep} = storage:split(Nkey, Id, Store),
-    Npid ! {handover, NotKeep},
-    Keep.
+    {KeepS, NotKeepS} = storage:split(Nkey, Id, Store),
+    {KeepR, NotKeepR} = storage:split(Nkey, Id, Replicate),
+    Npid ! {handover, {NotKeepS,NotKeepR}},
+    {KeepS, KeepR}.
 
 % check if the predecessor of this node's successor is this node
 stabilize(Pred, Nx, Id, Successor)->
@@ -228,14 +246,18 @@ remove_probe(Start, Nodes)->
 
 
 %(Key, Value, Qref, Client, Id, Predecessor, Successor, Store)
-add(Key, Value, Qref, Client, Id, {Pkey,_,_}, {_,_, Spid}, Store)->
+addS(Key, Value, Qref, Client, Id, {Pkey,_,_}, {_,_,Spid}, Store)->
     %(From, To]
     case key:between(Key, Pkey, Id) of
         %(Pkey, Id]
         true->
-            Client ! {Qref, ok},
+            Client ! {Qref, Id},
             %add new k-v into store 
-            storage:add(Key, Value, Store);
+            Added = storage:add(Key, Value, Store),
+            %send replicate to our successor
+            Spid ! {replicate, Key, Value, Qref, Client},
+            
+            Added;
         
         false->
             %forward this request to successor
@@ -243,8 +265,13 @@ add(Key, Value, Qref, Client, Id, {Pkey,_,_}, {_,_, Spid}, Store)->
             Store
     end.
 
-%Key, Qref, Client, Id, Predecessor, Successor, Store
-lookup(Key, Qref, Client, Id, {Pkey,_,_}, {_,_, Spid}, Store)->
+%(Key, Value, Qref, Client, Replica)
+addR(Key, Value, Qref, Client, Id, Replica)->
+    storage:add(Key, Value, Replica),
+    Client ! {Qref, Id}.
+
+%Key, Qref, Client, Id, Predecessor, Successor, Store)
+lookup(Key, Qref, Client, Id, {Pkey,_,_}, {_, _,Spid}, Store)->
     %(From, To]
     %io:format("~w receive a lookup request for ~w~n", [Id,Key]),
     case key:between(Key, Pkey, Id) of
@@ -276,3 +303,8 @@ down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}) ->
     NewSuccessor = {Nkey,Nref,Npid},
     stabilize(NewSuccessor),
     {Predecessor, NewSuccessor, nil}.
+
+%Replica should be merged with its own Store
+recoverStore(Store, Replica)->
+    storage:merge(Replica, Store).
+
