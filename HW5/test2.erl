@@ -41,3 +41,12 @@ add_lookup(Id, N, P)->
     T2 = now(),
     Done = (timer:now_diff(T2, T1) div 1000),
     io:format("Tets Machine~w: finish in ~w ms ~n", [Id, Done]).
+
+hand_fail_demo()->
+    N1 = test:start(node3),
+    N2 = test:start(node3,N1),
+    N3 = test:start(node3,N1),
+    N4 = test:start(node3,N1),
+    N5 = test:start(node3,N1),
+    {N1,N2,N3,N4,N5}.
+
