@@ -28,10 +28,17 @@ add(Key, Value , P) ->
     Q = make_ref(),
     P ! {add, Key, Value, Q, self()},
     receive 
-	{Q, ok} ->
-	   ok
+	{Q, Id1} ->
+        io:format("Store at ~w~n",[Id1]),
+	    receive 
+	    {Q, Id2} ->
+            io:format("Replicate at ~w~n",[Id2])
+        after ?Timeout ->
+	        {error, "Replicate timeout"}
+        end
 	after ?Timeout ->
-	    {error, "timeout"}
+	    {error, "Store timeout"}
+
     end.
 
 lookup(Key, Node) ->

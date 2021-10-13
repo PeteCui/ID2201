@@ -228,7 +228,7 @@ remove_probe(Start, Nodes)->
 
 
 %(Key, Value, Qref, Client, Id, Predecessor, Successor, Store)
-add(Key, Value, Qref, Client, Id, {Pkey,_}, {_, Spid}, Store)->
+add(Key, Value, Qref, Client, Id, {Pkey,_,_}, {_,_, Spid}, Store)->
     %(From, To]
     case key:between(Key, Pkey, Id) of
         %(Pkey, Id]
@@ -244,7 +244,7 @@ add(Key, Value, Qref, Client, Id, {Pkey,_}, {_, Spid}, Store)->
     end.
 
 %Key, Qref, Client, Id, Predecessor, Successor, Store
-lookup(Key, Qref, Client, Id, {Pkey,_}, {_, Spid}, Store)->
+lookup(Key, Qref, Client, Id, {Pkey,_,_}, {_,_, Spid}, Store)->
     %(From, To]
     %io:format("~w receive a lookup request for ~w~n", [Id,Key]),
     case key:between(Key, Pkey, Id) of
