@@ -68,8 +68,8 @@ node(Id, Predecessor, Successor, Store, Next, Replica) ->
         %handling failures
         {'DOWN', Ref, process,_,_}->
             %return new {Predecessor, Successor, Next}
-            {Pred, Succ, Nxt, NewStore} = down(Ref, Predecessor, Successor, Next, Store, Replica),
-            node(Id, Pred, Succ, NewStore, Nxt, NewStore);
+            {Pred, Succ, Nxt, NewStore, NewReplica} = down(Ref, Predecessor, Successor, Next, Store, Replica),
+            node(Id, Pred, Succ, NewStore, Nxt, NewReplica);
         
         status ->
             io:format(" Predecessor: ~w~n
@@ -295,15 +295,15 @@ drop(Pid)->
 down(Ref, {_, Ref, _}, Successor, Next, Store, Replica) ->
     %Predecessor set to nil and wait 
     %other to request and notify me!
-    {nil, Successor, Next, Replica};
+    {nil, Successor, Next, Store, Replica};
 %match with Successor
 down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}, Store, Replica) ->
-    NewReplica = recoverStore(Store, Replica),
+    NewStore = recoverStore(Store, Replica),
     %Next become new Successor
     Nref = monitor(Npid),
     NewSuccessor = {Nkey,Nref,Npid},
     stabilize(NewSuccessor),
-    {Predecessor, NewSuccessor, nil, NewReplica}.
+    {Predecessor, NewSuccessor, nil, NewStore, storage:create()}.
 
 %Replica should be merged with its own Store
 recoverStore(Store, Replica)->
