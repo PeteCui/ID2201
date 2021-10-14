@@ -68,9 +68,8 @@ node(Id, Predecessor, Successor, Store, Next, Replica) ->
         %handling failures
         {'DOWN', Ref, process,_,_}->
             %return new {Predecessor, Successor, Next}
-            {Pred, Succ, Nxt} = down(Ref, Predecessor, Successor, Next),
-            NewStore = recoverStore(Store, Replica),
-            node(Id, Pred, Succ, NewStore, Nxt, storage:create());
+            {Pred, Succ, Nxt, NewStore} = down(Ref, Predecessor, Successor, Next, Store, Replica),
+            node(Id, Pred, Succ, NewStore, Nxt, NewStore);
         
         status ->
             io:format(" Predecessor: ~w~n
@@ -293,17 +292,18 @@ drop(Pid)->
     erlang:demonitor(Pid, [flush]).
 
 %match with Predecessor
-down(Ref, {_, Ref, _}, Successor, Next) ->
+down(Ref, {_, Ref, _}, Successor, Next, Store, Replica) ->
     %Predecessor set to nil and wait 
     %other to request and notify me!
-    {nil, Successor, Next};
+    {nil, Successor, Next, Replica};
 %match with Successor
-down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}) ->
+down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}, Store, Replica) ->
+    NewReplica = recoverStore(Store, Replica),
     %Next become new Successor
     Nref = monitor(Npid),
     NewSuccessor = {Nkey,Nref,Npid},
     stabilize(NewSuccessor),
-    {Predecessor, NewSuccessor, nil}.
+    {Predecessor, NewSuccessor, nil, NewReplica}.
 
 %Replica should be merged with its own Store
 recoverStore(Store, Replica)->
